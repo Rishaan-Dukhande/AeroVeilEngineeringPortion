@@ -42,6 +42,29 @@ int bluePin  = 27;
 unsigned long lastPublish = 0;
 const unsigned long publishInterval = 30000;
 
+// ---- PM2.5 rolling average ----
+// The SPS30 has a documented +/-5 ug/m3 noise floor at low concentrations,
+// which is why readings jitter between values like 0.1 and 0.2 ug/m3 even
+// in stable air. Averaging the last 5 readings smooths that noise out
+// while still responding to real events (smoke, dust, etc).
+const int PM25_HISTORY_SIZE = 5;
+float pm25History[PM25_HISTORY_SIZE] = {0, 0, 0, 0, 0};
+int pm25HistoryIndex = 0;
+bool pm25HistoryFilled = false;
+
+float addPM25Reading(float newReading) {
+  pm25History[pm25HistoryIndex] = newReading;
+  pm25HistoryIndex = (pm25HistoryIndex + 1) % PM25_HISTORY_SIZE;
+  if (pm25HistoryIndex == 0) pm25HistoryFilled = true;
+
+  int count = pm25HistoryFilled ? PM25_HISTORY_SIZE : pm25HistoryIndex;
+  if (count == 0) return newReading; // first reading ever, nothing to average yet
+
+  float sum = 0;
+  for (int i = 0; i < count; i++) sum += pm25History[i];
+  return sum / count;
+}
+
 // ================================================================
 // WiFi
 // ================================================================
@@ -71,26 +94,33 @@ void connectMQTT() {
 // AQI Calculator
 // ================================================================
 int calculate_aqi(float pm25_val, String &category) {
+  float aqiDecimal; // the precise, unrounded result - lets us SEE the math working
   int aqi;
+
   if (pm25_val <= 12.0) {
-    aqi = (int)((pm25_val - 0.0) / (12.0 - 0.0) * (50 - 0) + 0);
+    aqiDecimal = (pm25_val - 0.0) / (12.0 - 0.0) * (50 - 0) + 0;
     category = "Good";
   } else if (pm25_val <= 35.4) {
-    aqi = (int)((pm25_val - 12.0) / (35.4 - 12.0) * (100 - 51) + 51);
+    aqiDecimal = (pm25_val - 12.0) / (35.4 - 12.0) * (100 - 51) + 51;
     category = "Moderate";
   } else if (pm25_val <= 55.4) {
-    aqi = (int)((pm25_val - 35.5) / (55.4 - 35.5) * (150 - 101) + 101);
+    aqiDecimal = (pm25_val - 35.5) / (55.4 - 35.5) * (150 - 101) + 101;
     category = "Unhealthy for Sensitive Groups";
   } else if (pm25_val <= 150.4) {
-    aqi = (int)((pm25_val - 55.5) / (150.4 - 55.5) * (200 - 151) + 151);
+    aqiDecimal = (pm25_val - 55.5) / (150.4 - 55.5) * (200 - 151) + 151;
     category = "Unhealthy";
   } else if (pm25_val <= 250.4) {
-    aqi = (int)((pm25_val - 150.5) / (250.4 - 150.5) * (300 - 201) + 201);
+    aqiDecimal = (pm25_val - 150.5) / (250.4 - 150.5) * (300 - 201) + 201;
     category = "Very Unhealthy";
   } else {
-    aqi = (int)((pm25_val - 250.5) / (500.0 - 250.5) * (500 - 301) + 301);
+    aqiDecimal = (pm25_val - 250.5) / (500.0 - 250.5) * (500 - 301) + 301;
     category = "Hazardous";
   }
+
+  Serial.printf("  AQI math -> PM2.5:%.2f ug/m3  =>  AQI (decimal):%.2f  =>  AQI (rounded):%d\n",
+                pm25_val, aqiDecimal, (int)aqiDecimal);
+
+  aqi = (int)aqiDecimal;
   return constrain(aqi, 0, 500);
 }
 
@@ -273,9 +303,11 @@ void loop() {
           Serial.println(readErr);
         } else {
           // uint16 values are scaled x10, divide to get ug/m3
-          pm25Value = mc2p5 / 10.0;
-          Serial.printf("SPS30 -> PM1.0:%.1f  PM2.5:%.1f  PM4.0:%.1f  PM10:%.1f ug/m3\n",
-                        mc1p0/10.0, mc2p5/10.0, mc4p0/10.0, mc10p0/10.0);
+          float pm25Raw = mc2p5 / 10.0;
+          pm25Value = addPM25Reading(pm25Raw); // smoothed average of last 5 readings
+
+          Serial.printf("SPS30 -> PM1.0:%.3f  PM2.5(raw):%.3f  PM2.5(avg):%.3f  PM4.0:%.3f  PM10:%.3f ug/m3\n",
+                        mc1p0/10.0, pm25Raw, pm25Value, mc4p0/10.0, mc10p0/10.0);
         }
       } else {
         Serial.println("SPS30: data not ready yet");
