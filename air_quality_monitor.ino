@@ -73,25 +73,25 @@ void connectMQTT() {
 int calculate_aqi(float pm25_val, String &category) {
   int aqi;
   if (pm25_val <= 12.0) {
-    aqi = map(pm25_val, 0, 12, 0, 50);
+    aqi = (int)((pm25_val - 0.0) / (12.0 - 0.0) * (50 - 0) + 0);
     category = "Good";
   } else if (pm25_val <= 35.4) {
-    aqi = map(pm25_val, 12, 35, 51, 100);
+    aqi = (int)((pm25_val - 12.0) / (35.4 - 12.0) * (100 - 51) + 51);
     category = "Moderate";
   } else if (pm25_val <= 55.4) {
-    aqi = map(pm25_val, 36, 55, 101, 150);
+    aqi = (int)((pm25_val - 35.5) / (55.4 - 35.5) * (150 - 101) + 101);
     category = "Unhealthy for Sensitive Groups";
   } else if (pm25_val <= 150.4) {
-    aqi = map(pm25_val, 56, 150, 151, 200);
+    aqi = (int)((pm25_val - 55.5) / (150.4 - 55.5) * (200 - 151) + 151);
     category = "Unhealthy";
   } else if (pm25_val <= 250.4) {
-    aqi = map(pm25_val, 151, 250, 201, 300);
+    aqi = (int)((pm25_val - 150.5) / (250.4 - 150.5) * (300 - 201) + 201);
     category = "Very Unhealthy";
   } else {
-    aqi = map(pm25_val, 251, 500, 301, 500);
+    aqi = (int)((pm25_val - 250.5) / (500.0 - 250.5) * (500 - 301) + 301);
     category = "Hazardous";
   }
-  return aqi;
+  return constrain(aqi, 0, 500);
 }
 
 // ================================================================
