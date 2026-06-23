@@ -245,6 +245,7 @@ void setup() {
     while (1) delay(10);
   }
   Serial.println("OK: OLED initialized");
+  display.setContrast(255);
   display.clearDisplay();
   display.setRotation(1);
   display.setTextSize(1);
