@@ -8,8 +8,16 @@
 #include <Adafruit_SH110X.h>
 #include <SensirionI2cSps30.h>
 #include <SensirionI2cScd4x.h>
+// PMS5003
+#include "Adafruit_PM25AQI.h"
 
 #include "secrets.h"
+
+// ---- PMS5003 (backup PM2.5 sensor, for cross-verification only) ----
+#define PMS_RX_PIN 32
+#define PMS_TX_PIN 33
+Adafruit_PM25AQI pms5003 = Adafruit_PM25AQI();
+bool pms5003Found = false;
 
 
 // ------- MQTT Setup -------
@@ -224,6 +232,19 @@ void setup() {
     Serial.println("OK: SPS30 ready");
   }
 
+  // PMS5003 - backup sensor for verification
+  Serial2.begin(9600, SERIAL_8N1, PMS_RX_PIN, PMS_TX_PIN);
+  delay(1000);
+  if (!pms5003.begin_UART(&Serial2)) {
+    Serial.println("PMS5003: Not found - check wiring");
+    pms5003Found = false;
+  } else {
+    pms5003Found = true;
+    Serial.println("OK: PMS5003 found - warming up 30 seconds...");
+    delay(30000);
+    Serial.println("OK: PMS5003 ready");
+  }
+
   // SCD41
   scd41.begin(Wire, SCD41_I2C_ADDR_62);
   uint16_t scdErr = scd41.stopPeriodicMeasurement();
@@ -312,6 +333,17 @@ void loop() {
         }
       } else {
         Serial.println("SPS30: data not ready yet");
+      }
+    }
+
+    // PMS5003 - backup, read in parallel for comparison only, does NOT affect AQI calculation
+    if (pms5003Found) {
+      PM25_AQI_Data pmsData;
+      if (pms5003.read(&pmsData)) {
+        Serial.printf("PMS5003 (backup) -> PM1.0:%d  PM2.5:%d  PM10:%d ug/m3 (standard) | PM2.5(env):%d\n",
+                      pmsData.pm10_standard, pmsData.pm25_standard, pmsData.pm100_standard, pmsData.pm25_env);
+      } else {
+        Serial.println("PMS5003 (backup): waiting for data...");
       }
     }
 
